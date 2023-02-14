@@ -77,6 +77,7 @@ NSString * const VSLCallErrorDuringSetupCallNotification = @"VSLCallErrorDuringS
 }
 
 - (instancetype)initInboundCallWithCallId:(NSUInteger)callId account:(VSLAccount *)account {
+    
     if (self = [self initPrivateWithAccount:account]) {
         self.callId = callId;
         self.isNeedToAnswerWhenAccountSetted = false;
@@ -99,13 +100,11 @@ NSString * const VSLCallErrorDuringSetupCallNotification = @"VSLCallErrorDuringS
     if (self = [self initPrivateWithAccount:account]) {
         self.numberToCall = [VialerUtils cleanPhoneNumber:number];
     }
-    self.isNeedToAnswerWhenAccountSetted = false;
     return self;
 }
 
 - (instancetype _Nullable)initInboundCallWithCallId:(NSUInteger)callId account:(VSLAccount * _Nonnull)account andInvite:(SipInvite *)invite {
     self.invite = invite;
-    self.isNeedToAnswerWhenAccountSetted = false;
     return [self initInboundCallWithCallId:callId account:account];
 }
 
@@ -114,7 +113,6 @@ NSString * const VSLCallErrorDuringSetupCallNotification = @"VSLCallErrorDuringS
     self.callerNumber = [VialerUtils cleanPhoneNumber:number];
     self.incoming = YES;
     self.callerName = name;
-    self.isNeedToAnswerWhenAccountSetted = false;
     return self;
 }
 
@@ -139,6 +137,7 @@ NSString * const VSLCallErrorDuringSetupCallNotification = @"VSLCallErrorDuringS
 
             } break;
             case VSLCallStateIncoming: {
+                VSLLogWarning(@"Error %d while sending status code PJSIP_SC_RINGING", VSLCallStateString(_callState));
                 pj_status_t status = pjsua_call_answer((pjsua_call_id)self.callId, PJSIP_SC_RINGING, NULL, NULL);
                 if (status != PJ_SUCCESS) {
                     VSLLogWarning(@"Error %d while sending status code PJSIP_SC_RINGING", status);
@@ -146,7 +145,6 @@ NSString * const VSLCallErrorDuringSetupCallNotification = @"VSLCallErrorDuringS
             } break;
 
             case VSLCallStateCalling: {
-
             } break;
 
             case VSLCallStateEarly: {
@@ -404,8 +402,11 @@ NSString * const VSLCallErrorDuringSetupCallNotification = @"VSLCallErrorDuringS
 #pragma mark - Callback methods
 
 - (void)updateCallInfo:(pjsua_call_info)callInfo {
-    self.callState = (VSLCallState)callInfo.state;
     self.callStateText = [NSString stringWithPJString:callInfo.state_text];
+    self.callState = (VSLCallState)callInfo.state;
+
+
+
     self.lastStatus = callInfo.last_status;
     self.lastStatusText = [NSString stringWithPJString:callInfo.last_status_text];
 
@@ -508,12 +509,6 @@ NSString * const VSLCallErrorDuringSetupCallNotification = @"VSLCallErrorDuringS
 #pragma mark - User actions
 - (void)answerWithCompletion:(void (^)(NSError *error))completion {
     pj_status_t status;
-    if (self.account == nil || self.callState == VSLCallStateNull){
-        self.isNeedToAnswerWhenAccountSetted = true;
-        
-        completion(nil);
-        return;
-    }
     if (self.callId != PJSUA_INVALID_ID) {
         pjsua_call_setting callSetting;
         pjsua_call_setting_default(&callSetting);
@@ -521,7 +516,13 @@ NSString * const VSLCallErrorDuringSetupCallNotification = @"VSLCallErrorDuringS
         if ([VSLEndpoint sharedEndpoint].endpointConfiguration.disableVideoSupport) {
             callSetting.vid_cnt = 0;
         }
-                status = pjsua_call_answer2((int)self.callId, &callSetting, PJSIP_SC_OK, NULL, NULL);
+        pjsua_msg_data msgData;
+        pjsua_msg_data_init(&msgData);
+        
+        // TODO: Audio/Video count configuration!
+        callSetting.aud_cnt = 1;
+        
+                status = pjsua_call_answer2((int)self.callId, &callSetting, PJSIP_SC_OK, NULL, &msgData);
         if (status != PJ_SUCCESS) {
             char statusmsg[PJ_ERR_MSG_SIZE];
             pj_strerror(status, statusmsg, sizeof(statusmsg));
